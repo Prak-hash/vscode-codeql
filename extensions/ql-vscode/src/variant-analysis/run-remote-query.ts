@@ -1,10 +1,9 @@
 import type { CancellationToken } from "vscode";
-import { Uri, window } from "vscode";
-import { join, sep, basename, relative } from "path";
-import { dump, load } from "js-yaml";
-import { copy, writeFile, readFile, mkdirp } from "fs-extra";
-import type { DirectoryResult } from "tmp-promise";
-import { dir, tmpName } from "tmp-promise";
+import { window } from "vscode";
+import { join, basename, relative } from "path";
+import { dump } from "js-yaml";
+import { copy, writeFile, readFile, mkdirp, remove } from "fs-extra";
+import { nanoid } from "nanoid";
 import { tmpDir } from "../tmp-dir";
 import { getOnDiskWorkspaceFolders } from "../common/vscode/workspace-folders";
 import type { Credentials } from "../common/authentication";
@@ -28,13 +27,7 @@ import {
 } from "./repository-selection";
 import type { Repository } from "./shared/repository";
 import type { DbManager } from "../databases/db-manager";
-import {
-  getQlPackFilePath,
-  FALLBACK_QLPACK_FILENAME,
-  QLPACK_FILENAMES,
-  QLPACK_LOCK_FILENAMES,
-} from "../common/ql";
-import type { QlPackFile } from "../packaging/qlpack-file";
+import { FALLBACK_QLPACK_FILENAME } from "../common/ql";
 import { expandShortPaths } from "../common/short-paths";
 import type { QlPackDetails } from "./ql-pack-details";
 import type { ModelPackDetails } from "../common/model-pack-details";
@@ -69,8 +62,6 @@ async function generateQueryPack(
   );
 
   const mustSynthesizePack = qlPackDetails.qlPackFilePath === undefined;
-  const cliSupportsMrvaPackCreate =
-    await cliServer.cliConstraints.supportsMrvaPackCreate();
 
   let targetPackPath: string;
   let needsInstall: boolean;
@@ -87,15 +78,6 @@ async function generateQueryPack(
     await cliServer.clearCache();
 
     // Install packs, since we just synthesized a dependency on the language's standard library.
-    needsInstall = true;
-  } else if (!cliSupportsMrvaPackCreate) {
-    // We need to copy the query pack to a temporary directory and then fix it up to work with MRVA.
-    targetPackPath = tmpDir.queryPackDir;
-    await copyExistingQueryPack(cliServer, qlPackDetails, targetPackPath);
-
-    // We should already have all the dependencies available, but these older versions of the CLI
-    // have a bug where they will not search `--additional-packs` during validation in `codeql pack bundle`.
-    // Installing the packs will ensure that any extension packs get put in the right place.
     needsInstall = true;
   } else {
     // The CLI supports creating a MRVA query pack directly from the source pack.
@@ -114,27 +96,18 @@ async function generateQueryPack(
     await cliServer.clearCache();
   }
 
-  let precompilationOpts: string[];
-  if (cliSupportsMrvaPackCreate) {
-    const queryOpts = qlPackDetails.queryFiles.flatMap((q) => [
-      "--query",
-      join(targetPackPath, relative(qlPackDetails.qlPackRootPath, q)),
-    ]);
+  const queryOpts = qlPackDetails.queryFiles.flatMap((q) => [
+    "--query",
+    join(targetPackPath, relative(qlPackDetails.qlPackRootPath, q)),
+  ]);
 
-    precompilationOpts = [
-      "--mrva",
-      ...queryOpts,
-      // We need to specify the extension packs as dependencies so that they are included in the MRVA pack.
-      // The version range doesn't matter, since they'll always be found by source lookup.
-      ...extensionPacks.map((p) => `--extension-pack=${p.name}@*`),
-    ];
-  } else {
-    precompilationOpts = ["--qlx"];
-
-    if (extensionPacks.length > 0) {
-      await addExtensionPacksAsDependencies(targetPackPath, extensionPacks);
-    }
-  }
+  const precompilationOpts = [
+    "--mrva",
+    ...queryOpts,
+    // We need to specify the extension packs as dependencies so that they are included in the MRVA pack.
+    // The version range doesn't matter, since they'll always be found by source lookup.
+    ...extensionPacks.map((p) => `--extension-pack=${p.name}@*`),
+  ];
 
   const bundlePath = tmpDir.bundleFile;
   void extLogger.log(
@@ -182,93 +155,29 @@ async function createNewQueryPack(
   );
 }
 
-async function copyExistingQueryPack(
-  cliServer: CodeQLCliServer,
-  qlPackDetails: QlPackDetails,
-  targetPackPath: string,
-) {
-  const toCopy = await cliServer.packPacklist(
-    qlPackDetails.qlPackRootPath,
-    false,
-  );
-
-  // Also include query files that contain extensible predicates. These query files are not
-  // needed for the query to run, but they are needed for the query pack to pass deep validation
-  // of data extensions.
-  const metadata = await cliServer.generateExtensiblePredicateMetadata(
-    qlPackDetails.qlPackRootPath,
-  );
-  metadata.extensible_predicates.forEach((predicate) => {
-    if (predicate.path.endsWith(".ql")) {
-      toCopy.push(join(qlPackDetails.qlPackRootPath, predicate.path));
-    }
-  });
-
-  [
-    // also copy the lock file (either new name or old name) and the query file itself. These are not included in the packlist.
-    ...QLPACK_LOCK_FILENAMES.map((f) => join(qlPackDetails.qlPackRootPath, f)),
-    ...qlPackDetails.queryFiles,
-  ].forEach((absolutePath) => {
-    if (absolutePath) {
-      toCopy.push(absolutePath);
-    }
-  });
-
-  let copiedCount = 0;
-  await copy(qlPackDetails.qlPackRootPath, targetPackPath, {
-    filter: (file: string) =>
-      // copy file if it is in the packlist, or it is a parent directory of a file in the packlist
-      !!toCopy.find((f) => {
-        // Normalized paths ensure that Windows drive letters are capitalized consistently.
-        const normalizedPath = Uri.file(f).fsPath;
-        const matches =
-          normalizedPath === file || normalizedPath.startsWith(file + sep);
-        if (matches) {
-          copiedCount++;
-        }
-        return matches;
-      }),
-  });
-
-  void extLogger.log(`Copied ${copiedCount} files to ${targetPackPath}`);
-
-  await fixPackFile(targetPackPath, qlPackDetails);
-}
-
 interface RemoteQueryTempDir {
-  remoteQueryDir: DirectoryResult;
+  remoteQueryDir: string;
   queryPackDir: string;
   compiledPackDir: string;
   bundleFile: string;
 }
 
 async function createRemoteQueriesTempDirectory(): Promise<RemoteQueryTempDir> {
-  const shortRemoteQueryDir = await dir({
-    dir: tmpDir.name,
-    unsafeCleanup: true,
-  });
   // Expand 8.3 filenames here to work around a CLI bug where `codeql pack bundle` produces an empty
   // archive if the pack path contains any 8.3 components.
-  const remoteQueryDir = {
-    ...shortRemoteQueryDir,
-    path: await expandShortPaths(shortRemoteQueryDir.path, extLogger),
-  };
-  const queryPackDir = join(remoteQueryDir.path, "query-pack");
-  await mkdirp(queryPackDir);
-  const compiledPackDir = join(remoteQueryDir.path, "compiled-pack");
-  const bundleFile = await expandShortPaths(
-    await getPackedBundlePath(tmpDir.name),
-    extLogger,
-  );
-  return { remoteQueryDir, queryPackDir, compiledPackDir, bundleFile };
-}
+  const tmpDirPath = await expandShortPaths(tmpDir.name, extLogger);
 
-async function getPackedBundlePath(remoteQueryDir: string): Promise<string> {
-  return tmpName({
-    dir: remoteQueryDir,
-    postfix: "generated.tgz",
-    prefix: "qlpack",
-  });
+  const remoteQueryDir = join(tmpDirPath, `remote-query-${nanoid()}`);
+  await mkdirp(remoteQueryDir);
+
+  const queryPackDir = join(remoteQueryDir, "query-pack");
+  await mkdirp(queryPackDir);
+
+  const compiledPackDir = join(remoteQueryDir, "compiled-pack");
+
+  const bundleFile = join(remoteQueryDir, `qlpack-${nanoid()}-generated.tgz`);
+
+  return { remoteQueryDir, queryPackDir, compiledPackDir, bundleFile };
 }
 
 interface PreparedRemoteQuery {
@@ -337,7 +246,7 @@ export async function prepareRemoteQueryRun(
       token,
     );
   } finally {
-    await tempDir.remoteQueryDir.cleanup();
+    await remove(tempDir.remoteQueryDir);
   }
 
   if (token.isCancellationRequested) {
@@ -361,42 +270,6 @@ export async function prepareRemoteQueryRun(
     controllerRepo,
     queryStartTime,
   };
-}
-
-/**
- * Fixes the qlpack.yml or codeql-pack.yml file to be correct in the context of the MRVA request.
- *
- * Performs the following fixes:
- *
- * - Updates the default suite of the query pack. This is used to ensure
- *   only the specified query is run.
- * - Ensures the query pack name is set to the name expected by the server.
- * - Removes any `${workspace}` version references from the qlpack.yml or codeql-pack.yml file. Converts them
- *   to `*` versions.
- *
- * @param targetPackPath The path to the directory containing the target pack
- * @param qlPackDetails The details of the original QL pack
- */
-async function fixPackFile(
-  targetPackPath: string,
-  qlPackDetails: QlPackDetails,
-): Promise<void> {
-  const packPath = await getQlPackFilePath(targetPackPath);
-
-  // This should not happen since we create the pack ourselves.
-  if (!packPath) {
-    throw new Error(
-      `Could not find ${QLPACK_FILENAMES.join(
-        " or ",
-      )} file in '${targetPackPath}'`,
-    );
-  }
-  const qlpack = load(await readFile(packPath, "utf8")) as QlPackFile;
-
-  updateDefaultSuite(qlpack, qlPackDetails);
-  removeWorkspaceRefs(qlpack);
-
-  await writeFile(packPath, dump(qlpack));
 }
 
 async function getExtensionPacksToInject(
@@ -425,41 +298,6 @@ async function getExtensionPacksToInject(
   }
 
   return result;
-}
-
-async function addExtensionPacksAsDependencies(
-  queryPackDir: string,
-  extensionPacks: ModelPackDetails[],
-): Promise<void> {
-  const qlpackFile = await getQlPackFilePath(queryPackDir);
-  if (!qlpackFile) {
-    throw new Error(
-      `Could not find ${QLPACK_FILENAMES.join(
-        " or ",
-      )} file in '${queryPackDir}'`,
-    );
-  }
-
-  const syntheticQueryPack = load(
-    await readFile(qlpackFile, "utf8"),
-  ) as QlPackFile;
-
-  const dependencies = syntheticQueryPack.dependencies ?? {};
-  extensionPacks.forEach(({ name }) => {
-    // Add this extension pack as a dependency. It doesn't matter which
-    // version we specify, since we are guaranteed that the extension pack
-    // is resolved from source at the given path.
-    dependencies[name] = "*";
-  });
-
-  syntheticQueryPack.dependencies = dependencies;
-
-  await writeFile(qlpackFile, dump(syntheticQueryPack));
-}
-
-function updateDefaultSuite(qlpack: QlPackFile, qlPackDetails: QlPackDetails) {
-  delete qlpack.defaultSuiteFile;
-  qlpack.defaultSuite = generateDefaultSuite(qlPackDetails);
 }
 
 function generateDefaultSuite(qlPackDetails: QlPackDetails) {
@@ -559,18 +397,6 @@ async function getControllerRepoFromApi(
           e,
         )}`,
       );
-    }
-  }
-}
-
-function removeWorkspaceRefs(qlpack: QlPackFile) {
-  if (!qlpack.dependencies) {
-    return;
-  }
-
-  for (const [key, value] of Object.entries(qlpack.dependencies)) {
-    if (value === "${workspace}") {
-      qlpack.dependencies[key] = "*";
     }
   }
 }

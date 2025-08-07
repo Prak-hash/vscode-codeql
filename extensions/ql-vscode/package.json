@@ -4,7 +4,7 @@
   "description": "CodeQL for Visual Studio Code",
   "author": "GitHub",
   "private": true,
-  "version": "1.17.3",
+  "version": "1.17.5",
   "publisher": "GitHub",
   "license": "MIT",
   "icon": "media/VS-marketplace-CodeQL-icon.png",
@@ -14,7 +14,7 @@
   },
   "engines": {
     "vscode": "^1.90.0",
-    "node": "^20.18.3",
+    "node": "^22.15.1",
     "npm": ">=7.20.6"
   },
   "categories": [
@@ -572,6 +572,10 @@
         "title": "CodeQL: Run Queries in Selected Files"
       },
       {
+        "command": "codeQL.runQuerySuite",
+        "title": "CodeQL: Run Selected Query Suite"
+      },
+      {
         "command": "codeQL.quickEval",
         "title": "CodeQL: Quick Evaluation"
       },
@@ -787,6 +791,10 @@
         "title": "CodeQL: Trim Cache"
       },
       {
+        "command": "codeQL.trimOverlayBaseCache",
+        "title": "CodeQL: Trim Overlay Base Cache"
+      },
+      {
         "command": "codeQL.installPackDependencies",
         "title": "CodeQL: Install Pack Dependencies"
       },
@@ -953,6 +961,10 @@
       {
         "command": "codeQLQueryHistory.copyRepoList",
         "title": "Copy Repository List"
+      },
+      {
+        "command": "codeQLQueryHistory.viewAutofixes",
+        "title": "View Autofixes"
       },
       {
         "command": "codeQLQueryResults.down",
@@ -1293,6 +1305,11 @@
           "when": "viewItem == remoteResultsItem"
         },
         {
+          "command": "codeQLQueryHistory.viewAutofixes",
+          "group": "1_queryHistory@2",
+          "when": "viewItem == remoteResultsItem && config.codeQL.canary"
+        },
+        {
           "command": "codeQLQueries.runLocalQueryFromQueriesPanel",
           "group": "inline",
           "when": "view == codeQLQueries && viewItem == queryFile && codeQL.currentDatabaseItem"
@@ -1360,6 +1377,11 @@
           "command": "codeQL.runQueries",
           "group": "9_qlCommands",
           "when": "resourceScheme != codeql-zip-archive"
+        },
+        {
+          "command": "codeQL.runQuerySuite",
+          "group": "9_qlCommands",
+          "when": "resourceScheme != codeql-zip-archive && resourceExtname == .qls && !explorerResourceIsFolder && !listMultiSelection && config.codeQL.canary"
         },
         {
           "command": "codeQL.runVariantAnalysisContextExplorer",
@@ -1456,6 +1478,10 @@
         },
         {
           "command": "codeQL.runQueries",
+          "when": "false"
+        },
+        {
+          "command": "codeQL.runQuerySuite",
           "when": "false"
         },
         {
@@ -1694,6 +1720,10 @@
           "when": "false"
         },
         {
+          "command": "codeQLQueryHistory.viewAutofixes",
+          "when": "false"
+        },
+        {
           "command": "codeQLQueryHistory.showQueryText",
           "when": "false"
         },
@@ -1791,6 +1821,10 @@
         },
         {
           "command": "codeQL.trimCache"
+        },
+        {
+          "command": "codeQL.trimOverlayBaseCache",
+          "when": "codeQL.cliFeatures.queryServerTrimCacheWithMode"
         }
       ],
       "editor/context": [
@@ -1982,6 +2016,7 @@
     "d3-graphviz": "^5.0.2",
     "fs-extra": "^11.1.1",
     "js-yaml": "^4.1.0",
+    "koffi": "^2.12.0",
     "msw": "^2.7.4",
     "nanoid": "^5.0.7",
     "p-queue": "^8.0.1",
@@ -1993,7 +2028,7 @@
     "source-map-support": "^0.5.21",
     "stream-json": "^1.7.3",
     "styled-components": "^6.1.13",
-    "tmp": "^0.2.1",
+    "tmp": "^0.2.4",
     "tmp-promise": "^3.0.2",
     "tree-kill": "^1.2.2",
     "vscode-extension-telemetry": "^0.1.6",
@@ -2014,19 +2049,19 @@
     "@jest/environment-jsdom-abstract": "^30.0.0-alpha.7",
     "@microsoft/eslint-formatter-sarif": "^3.1.0",
     "@playwright/test": "^1.50.1",
-    "@storybook/addon-a11y": "^8.6.12",
-    "@storybook/addon-actions": "^8.6.12",
-    "@storybook/addon-essentials": "^8.6.12",
-    "@storybook/addon-interactions": "^8.6.12",
-    "@storybook/addon-links": "^8.6.12",
+    "@storybook/addon-a11y": "^8.6.14",
+    "@storybook/addon-actions": "^8.6.14",
+    "@storybook/addon-essentials": "^8.6.14",
+    "@storybook/addon-interactions": "^8.6.14",
+    "@storybook/addon-links": "^8.6.14",
     "@storybook/blocks": "^8.6.0",
-    "@storybook/components": "^8.6.12",
+    "@storybook/components": "^8.6.14",
     "@storybook/csf": "^0.1.13",
     "@storybook/icons": "^1.4.0",
-    "@storybook/manager-api": "^8.6.12",
-    "@storybook/react": "^8.6.12",
-    "@storybook/react-vite": "^8.6.12",
-    "@storybook/theming": "^8.6.12",
+    "@storybook/manager-api": "^8.6.14",
+    "@storybook/react": "^8.6.14",
+    "@storybook/react-vite": "^8.6.14",
+    "@storybook/theming": "^8.6.14",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -2040,7 +2075,7 @@
     "@types/gulp-replace": "^1.1.0",
     "@types/jest": "^29.5.12",
     "@types/js-yaml": "^4.0.6",
-    "@types/node": "20.17.*",
+    "@types/node": "22.15.*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -2053,8 +2088,8 @@
     "@types/tmp": "^0.2.6",
     "@types/vscode": "1.90.0",
     "@types/yauzl": "^2.10.3",
-    "@typescript-eslint/eslint-plugin": "^8.32.0",
-    "@typescript-eslint/parser": "^8.32.0",
+    "@typescript-eslint/eslint-plugin": "^8.37.0",
+    "@typescript-eslint/parser": "^8.37.0",
     "@vscode/test-electron": "^2.3.9",
     "@vscode/vsce": "^3.2.1",
     "ansi-colors": "^4.1.1",
@@ -2089,8 +2124,8 @@
     "markdownlint-cli2-formatter-pretty": "^0.0.7",
     "npm-run-all": "^4.1.5",
     "patch-package": "^8.0.0",
-    "prettier": "^3.5.3",
-    "storybook": "^8.6.12",
+    "prettier": "^3.6.1",
+    "storybook": "^8.6.14",
     "tar-stream": "^3.1.7",
     "through2": "^4.0.2",
     "ts-jest": "^29.3.2",

@@ -138,6 +138,7 @@ export type LocalQueryCommands = {
   "codeQLQueries.createQuery": () => Promise<void>;
   "codeQL.runLocalQueryFromFileTab": (uri: Uri) => Promise<void>;
   "codeQL.runQueries": ExplorerSelectionCommandFunction<Uri>;
+  "codeQL.runQuerySuite": ExplorerSelectionCommandFunction<Uri>;
   "codeQL.quickEval": (uri: Uri) => Promise<void>;
   "codeQL.quickEvalCount": (uri: Uri) => Promise<void>;
   "codeQL.quickEvalContextEditor": (uri: Uri) => Promise<void>;
@@ -196,6 +197,7 @@ export type QueryHistoryCommands = {
   "codeQLQueryHistory.itemClicked": TreeViewContextMultiSelectionCommandFunction<QueryHistoryInfo>;
   "codeQLQueryHistory.openOnGithub": TreeViewContextMultiSelectionCommandFunction<QueryHistoryInfo>;
   "codeQLQueryHistory.copyRepoList": TreeViewContextMultiSelectionCommandFunction<QueryHistoryInfo>;
+  "codeQLQueryHistory.viewAutofixes": TreeViewContextMultiSelectionCommandFunction<QueryHistoryInfo>;
 
   // Commands in the command palette
   "codeQL.exportSelectedVariantAnalysisResults": () => Promise<void>;
@@ -219,6 +221,7 @@ export type LocalDatabasesCommands = {
   "codeQL.upgradeCurrentDatabase": () => Promise<void>;
   "codeQL.clearCache": () => Promise<void>;
   "codeQL.trimCache": () => Promise<void>;
+  "codeQL.trimOverlayBaseCache": () => Promise<void>;
 
   // Explorer context menu
   "codeQL.setCurrentDatabase": (uri: Uri) => Promise<void>;

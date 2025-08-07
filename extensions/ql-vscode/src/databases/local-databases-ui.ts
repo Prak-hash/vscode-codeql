@@ -284,6 +284,7 @@ export class DatabaseUI extends DisposableObject {
         this.handleUpgradeCurrentDatabase.bind(this),
       "codeQL.clearCache": this.handleClearCache.bind(this),
       "codeQL.trimCache": this.handleTrimCache.bind(this),
+      "codeQL.trimOverlayBaseCache": this.handleTrimOverlayBaseCache.bind(this),
       "codeQLDatabases.chooseDatabaseFolder":
         this.handleChooseDatabaseFolder.bind(this),
       "codeQLDatabases.chooseDatabaseArchive":
@@ -505,7 +506,7 @@ export class DatabaseUI extends DisposableObject {
   ): Promise<void> {
     try {
       await this.chooseAndSetDatabase(false, progress);
-    } catch (e: unknown) {
+    } catch (e) {
       void showAndLogExceptionWithTelemetry(
         this.app.logger,
         this.app.telemetry,
@@ -684,6 +685,25 @@ export class DatabaseUI extends DisposableObject {
       },
       {
         title: "Trimming cache",
+      },
+    );
+  }
+
+  private async handleTrimOverlayBaseCache(): Promise<void> {
+    return withProgress(
+      async () => {
+        if (
+          this.queryServer !== undefined &&
+          this.databaseManager.currentDatabaseItem !== undefined
+        ) {
+          await this.queryServer.trimCacheWithModeInDatabase(
+            this.databaseManager.currentDatabaseItem,
+            "overlay",
+          );
+        }
+      },
+      {
+        title: "Removing all overlay-dependent data from cache",
       },
     );
   }

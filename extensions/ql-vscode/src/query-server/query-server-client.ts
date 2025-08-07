@@ -95,6 +95,14 @@ export class QueryServerClient extends DisposableObject {
     return this.opts.logger;
   }
 
+  /**
+   * Whether this query server supports the 'evaluation/runQueries' method for running multiple
+   * queries at once.
+   */
+  async supportsRunQueriesMethod(): Promise<boolean> {
+    return await this.cliServer.cliConstraints.supportsQueryServerRunQueries();
+  }
+
   /** Stops the query server by disposing of the current server process. */
   private stopQueryServer(): void {
     if (this.serverProcess !== undefined) {

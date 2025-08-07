@@ -6,10 +6,12 @@ import { UserCancellationException } from "../common/vscode/progress";
 import type { DatabaseItem } from "../databases/local-databases/database-item";
 import { QueryOutputDir } from "../local-queries/query-output-dir";
 import type {
+  ClearCacheMode,
   ClearCacheParams,
   Position,
   QueryResultType,
   TrimCacheParams,
+  TrimCacheWithModeParams,
 } from "./messages";
 import {
   clearCache,
@@ -17,21 +19,29 @@ import {
   deregisterDatabases,
   registerDatabases,
   trimCache,
+  trimCacheWithMode,
   upgradeDatabase,
 } from "./messages";
 import type { BaseLogger, Logger } from "../common/logging";
-import { basename, join } from "path";
+import { join } from "path";
 import { nanoid } from "nanoid";
 import type { QueryServerClient } from "./query-server-client";
 import { getOnDiskWorkspaceFolders } from "../common/vscode/workspace-folders";
 import { compileAndRunQueryAgainstDatabaseCore } from "./run-queries";
 
 export interface CoreQueryTarget {
-  /** The full path to the query. */
+  /** Path to the query source file. */
   queryPath: string;
+
+  /**
+   * Base name to use for output files, without extension. For example, "foo" will result in the
+   * BQRS file being written to "<outputdir>/foo.bqrs".
+   */
+  outputBaseName: string;
+
   /**
    * Optional position of text to be used as QuickEval target. This need not be in the same file as
-   * `query`.
+   * `queryPath`.
    */
   quickEvalPosition?: Position;
   /**
@@ -40,14 +50,25 @@ export interface CoreQueryTarget {
   quickEvalCountOnly?: boolean;
 }
 
-export interface CoreQueryResults {
+export interface CoreQueryResult {
   readonly resultType: QueryResultType;
   readonly message: string | undefined;
   readonly evaluationTime: number;
+
+  /**
+   * The base name of the output file. Append '.bqrs' and join with the output directory to get the
+   * path to the BQRS.
+   */
+  readonly outputBaseName: string;
+}
+
+export interface CoreQueryResults {
+  /** A map from query path to its results. */
+  readonly results: Map<string, CoreQueryResult>;
 }
 
 export interface CoreQueryRun {
-  readonly queryTarget: CoreQueryTarget;
+  readonly queryTargets: CoreQueryTarget[];
   readonly dbPath: string;
   readonly id: string;
   readonly outputDir: QueryOutputDir;
@@ -124,9 +145,25 @@ export class QueryRunner {
     await this.qs.sendRequest(trimCache, params);
   }
 
+  async trimCacheWithModeInDatabase(
+    dbItem: DatabaseItem,
+    mode: ClearCacheMode,
+  ): Promise<void> {
+    if (dbItem.contents === undefined) {
+      throw new Error("Can't clean the cache in an invalid database.");
+    }
+
+    const db = dbItem.databaseUri.fsPath;
+    const params: TrimCacheWithModeParams = {
+      db,
+      mode,
+    };
+    await this.qs.sendRequest(trimCacheWithMode, params);
+  }
+
   public async compileAndRunQueryAgainstDatabaseCore(
     dbPath: string,
-    query: CoreQueryTarget,
+    queries: CoreQueryTarget[],
     additionalPacks: string[],
     extensionPacks: string[] | undefined,
     additionalRunQueryArgs: Record<string, unknown>,
@@ -142,7 +179,7 @@ export class QueryRunner {
     return await compileAndRunQueryAgainstDatabaseCore(
       this.qs,
       dbPath,
-      query,
+      queries,
       generateEvalLog,
       additionalPacks,
       extensionPacks,
@@ -213,19 +250,20 @@ export class QueryRunner {
    */
   public createQueryRun(
     dbPath: string,
-    query: CoreQueryTarget,
+    queries: CoreQueryTarget[],
     generateEvalLog: boolean,
     additionalPacks: string[],
     extensionPacks: string[] | undefined,
     additionalRunQueryArgs: Record<string, unknown>,
     queryStorageDir: string,
-    id = `${basename(query.queryPath)}-${nanoid()}`,
+    queryBasename: string,
     templates: Record<string, string> | undefined,
   ): CoreQueryRun {
+    const id = `${queryBasename}-${nanoid()}`;
     const outputDir = new QueryOutputDir(join(queryStorageDir, id));
 
     return {
-      queryTarget: query,
+      queryTargets: queries,
       dbPath,
       id,
       outputDir,
@@ -238,10 +276,10 @@ export class QueryRunner {
           id,
           outputDir,
           dbPath,
-          queryTarget: query,
+          queryTargets: queries,
           ...(await this.compileAndRunQueryAgainstDatabaseCore(
             dbPath,
-            query,
+            queries,
             additionalPacks,
             extensionPacks,
             additionalRunQueryArgs,

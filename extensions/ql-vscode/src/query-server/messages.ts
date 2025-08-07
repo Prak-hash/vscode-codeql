@@ -43,6 +43,22 @@ export interface TrimCacheParams {
 }
 
 /**
+ * Parameters for trimming the cache of a dataset with a specific mode.
+ */
+export interface TrimCacheWithModeParams {
+  /**
+   * The dataset that we want to trim the cache of.
+   */
+  db: string;
+  /**
+   * The cache cleanup mode to use.
+   */
+  mode: ClearCacheMode;
+}
+
+export type ClearCacheMode = "clear" | "trim" | "fit" | "overlay";
+
+/**
  * The result of trimming or clearing the cache.
  */
 interface ClearCacheResult {
@@ -130,11 +146,27 @@ export interface RunQueryParams {
   extensionPacks?: string[];
 }
 
-interface RunQueryResult {
+export interface RunQueryResult {
   resultType: QueryResultType;
   message?: string;
   expectedDbschemeName?: string;
   evaluationTime: number;
+}
+
+export interface RunQueryInputOutput {
+  queryPath: string;
+  outputPath: string;
+  dilPath: string;
+}
+
+export interface RunQueriesParams {
+  inputOutputPaths: RunQueryInputOutput[];
+  db: string;
+  additionalPacks: string[];
+  externalInputs: Record<string, string>;
+  singletonExternalInputs: Record<string, string>;
+  logPath?: string;
+  extensionPacks?: string[];
 }
 
 interface UpgradeParams {
@@ -177,6 +209,14 @@ export const trimCache = new RequestType<
   ClearCacheResult,
   void
 >("evaluation/trimCache");
+/**
+ * Trim the cache of a dataset with a specific mode.
+ */
+export const trimCacheWithMode = new RequestType<
+  WithProgressId<TrimCacheWithModeParams>,
+  ClearCacheResult,
+  void
+>("evaluation/trimCacheWithMode");
 
 /**
  * Clear the pack cache
@@ -195,6 +235,12 @@ export const runQuery = new RequestType<
   RunQueryResult,
   void
 >("evaluation/runQuery");
+
+export const runQueries = new RequestType<
+  WithProgressId<RunQueriesParams>,
+  Record<string, RunQueryResult>,
+  void
+>("evaluation/runQueries");
 
 export const registerDatabases = new RequestType<
   WithProgressId<RegisterDatabasesParams>,
